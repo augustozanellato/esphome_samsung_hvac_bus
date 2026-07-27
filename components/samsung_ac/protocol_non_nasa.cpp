@@ -213,7 +213,8 @@ namespace esphome
             str += "power:" + std::to_string(power ? 1 : 0) + "; ";
             str += "wind_direction:" + std::to_string((uint8_t)wind_direction) + "; ";
             str += "fanspeed:" + std::to_string((uint8_t)fanspeed) + "; ";
-            str += "mode:" + long_to_hex((uint8_t)mode);
+            str += "mode:" + long_to_hex((uint8_t)mode) + "; ";
+            str += "error_flags:" + long_to_hex(error_flags);
             return str;
         }
 
@@ -389,6 +390,7 @@ namespace esphome
                 command20.fanspeed = (NonNasaFanspeed)((data[7] & 0b00000111));
                 command20.mode = (NonNasaMode)(data[8] & 0b00111111);
                 command20.power = data[8] & 0b10000000;
+                command20.error_flags = data[10];
                 command20.pipe_out = Temperature::decode(data[11]);
 
                 if (command20.wind_direction == (NonNasaWindDirection)0)
@@ -511,6 +513,8 @@ namespace esphome
                 return 64;
             case NonNasaFanspeed::Medium:
                 return 128;
+            case NonNasaFanspeed::Turbo:
+                return 224;
             case NonNasaFanspeed::Fresh:
             case NonNasaFanspeed::High:
                 return 160;
@@ -637,6 +641,8 @@ namespace esphome
                 return NonNasaFanspeed::Medium;
             case FanMode::Low:
                 return NonNasaFanspeed::Low;
+            case FanMode::Turbo:
+                return NonNasaFanspeed::Turbo;
             case FanMode::Auto:
             default:
                 return NonNasaFanspeed::Auto;
@@ -723,6 +729,8 @@ namespace esphome
         {
             switch (fanspeed)
             {
+            case NonNasaFanspeed::Turbo:
+                return FanMode::Turbo;
             case NonNasaFanspeed::Fresh:
             case NonNasaFanspeed::High:
                 return FanMode::High;
@@ -817,18 +825,20 @@ namespace esphome
                     sig ^= ((uint32_t)((uint8_t)nonpacket_.command20.mode & 0x0F)) << 29;
                     sig ^= ((uint32_t)((uint8_t)nonpacket_.command20.fanspeed)) * 2654435761u;
                     sig ^= ((uint32_t)((uint8_t)nonpacket_.command20.wind_direction)) * 2246822519u;
+                    sig ^= ((uint32_t)nonpacket_.command20.error_flags) * 3266489917u;
 
                     if (!debug_log_messages_on_change ||
                         log_should_print(log_dedup_key(nonpacket_.src, "nonnasa", 0x0020), (double)sig, 0.0, 0))
                     {
 
-                        LOGI("Cmd20 received: src=%s, wind_direction=%d, target_temp=%d, power=%d, mode=%d, fanspeed=%d",
+                        LOGI("Cmd20 received: src=%s, wind_direction=%d, target_temp=%d, power=%d, mode=%d, fanspeed=%d, error_flags=0x%02x",
                              nonpacket_.src.c_str(),
                              (uint8_t)nonpacket_.command20.wind_direction,
                              nonpacket_.command20.target_temp,
                              nonpacket_.command20.power,
                              (uint8_t)nonpacket_.command20.mode,
-                             (uint8_t)nonpacket_.command20.fanspeed);
+                             (uint8_t)nonpacket_.command20.fanspeed,
+                             nonpacket_.command20.error_flags);
                     }
                 }
 
@@ -870,6 +880,10 @@ namespace esphome
                 float pipe_out_temp = nonpacket_.command20.pipe_out.to_celsius();
                 target->set_indoor_eva_in_temperature(nonpacket_.src, pipe_in_temp);
                 target->set_indoor_eva_out_temperature(nonpacket_.src, pipe_out_temp);
+
+                // Command 20 reports indoor faults as a bit mask. Publish it independently
+                // of pending climate controls so diagnostic state is never suppressed.
+                target->set_error_code(nonpacket_.src, nonpacket_.command20.error_flags);
 
                 if (!pending_control_message)
                 {

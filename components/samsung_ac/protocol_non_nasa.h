@@ -16,7 +16,8 @@ namespace esphome
             Low = 2,
             Medium = 4,
             High = 5,
-            Fresh = 6
+            Fresh = 6,
+            Turbo = 7
         };
 
         enum class NonNasaMode : uint8_t
@@ -67,6 +68,7 @@ namespace esphome
             NonNasaWindDirection wind_direction = NonNasaWindDirection::Stop;
 
             bool power = false;
+            uint8_t error_flags = 0;
 
             std::string to_string();
         };

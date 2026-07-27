@@ -164,6 +164,10 @@ void test_decoding()
     assert(p.command20.fanspeed == NonNasaFanspeed::High);
     assert(p.command20.mode == NonNasaMode::Cool);
     assert(p.command20.wind_direction == NonNasaWindDirection::Stop);
+
+    p = test_decode("3200c8204f4f4eff821c854e0c34");
+    assert(p.command20.fanspeed == NonNasaFanspeed::Turbo);
+    assert(p.command20.error_flags == 0x85);
 }
 
 NonNasaRequest create_request()
@@ -216,6 +220,9 @@ void test_encoding()
     req = create_request();
     req.fanspeed = NonNasaFanspeed::Low;
     test_request(req, "32d000b01f045400c4210000ca34");
+    req = create_request();
+    req.fanspeed = NonNasaFanspeed::Turbo;
+    test_request(req, "32d000b01f00f400c42100006e34");
 
     req = create_request();
     req.target_temp = 25;
@@ -469,6 +476,80 @@ void test_cmd20_eva_temperatures()
     test_process_data(packet_to_hex(packet), target);
     assert(target.last_set_indoor_eva_in_temperature_value == -5.0f);
     assert(target.last_set_indoor_eva_out_temperature_value == -3.0f);
+}
+
+void test_cmd20_turbo_and_indoor_error_flags()
+{
+    std::cout << "test_cmd20_turbo_and_indoor_error_flags" << std::endl;
+
+    auto build_cmd20 = [](uint8_t error_flags) {
+        return build_packet(0x00, 0xc8, 0x20, [error_flags](std::vector<uint8_t> &data) {
+            data[4] = 24 + 55;
+            data[5] = 25 + 55;
+            data[6] = 23 + 55;
+            data[7] = (31U << 3) | 7U; // Stop, Turbo
+            data[8] = 0x80 | 0x02;     // Power on, Cool
+            data[10] = error_flags;
+            data[11] = 24 + 55;
+        });
+    };
+
+    DebugTarget target;
+
+    auto packet = build_cmd20(0);
+    test_process_data(packet_to_hex(packet), target);
+    assert(target.last_set_fanmode_address == "00");
+    assert(target.last_set_fanmode_mode == FanMode::Turbo);
+    assert(target.last_set_error_code_address == "00");
+    assert(target.last_set_error_code_value == 0);
+
+    packet = build_cmd20(0x04);
+    test_process_data(packet_to_hex(packet), target);
+    assert(target.last_set_error_code_value == 0x04);
+
+    packet = build_cmd20(0x85);
+    test_process_data(packet_to_hex(packet), target);
+    assert(target.last_set_error_code_value == 0x85);
+
+    nonnasa_requests.clear();
+    ProtocolRequest turbo_request;
+    turbo_request.fan_mode = FanMode::Turbo;
+    get_protocol("00")->publish_request(&target, "00", turbo_request);
+    assert(nonnasa_requests.size() == 1);
+    assert(nonnasa_requests.front().request.fanspeed == NonNasaFanspeed::Turbo);
+    assert((nonnasa_requests.front().request.encode()[6] & 0xE0) == 0xE0);
+    nonnasa_requests.clear();
+}
+
+void test_cmd20_indoor_error_flags_with_pending_control()
+{
+    std::cout << "test_cmd20_indoor_error_flags_with_pending_control" << std::endl;
+
+    nonnasa_requests.clear();
+    NonNasaRequestQueueItem pending{};
+    pending.request.dst = "00";
+    pending.time_sent = 1;
+    nonnasa_requests.push_back(pending);
+
+    auto packet = build_packet(0x00, 0xc8, 0x20, [](std::vector<uint8_t> &data) {
+        data[4] = 24 + 55;
+        data[5] = 25 + 55;
+        data[6] = 23 + 55;
+        data[7] = (31U << 3) | 7U;
+        data[8] = 0x80 | 0x02;
+        data[10] = 0x08;
+        data[11] = 24 + 55;
+    });
+
+    DebugTarget target;
+    test_process_data(packet_to_hex(packet), target);
+
+    assert(target.last_set_error_code_address == "00");
+    assert(target.last_set_error_code_value == 0x08);
+    assert(target.last_set_fanmode_address.empty());
+    assert(!nonnasa_requests.empty());
+
+    nonnasa_requests.clear();
 }
 
 void test_cmdf0_error_code()
@@ -753,7 +834,8 @@ void test_non_nasa_edge_cases()
         NonNasaFanspeed::Low,
         NonNasaFanspeed::Medium,
         NonNasaFanspeed::High,
-        NonNasaFanspeed::Fresh
+        NonNasaFanspeed::Fresh,
+        NonNasaFanspeed::Turbo
     };
     
     for (auto fanspeed : fan_speeds)
@@ -1019,7 +1101,8 @@ void test_request_encoding_edge_cases()
         NonNasaFanspeed::Low,
         NonNasaFanspeed::Medium,
         NonNasaFanspeed::High,
-        NonNasaFanspeed::Fresh
+        NonNasaFanspeed::Fresh,
+        NonNasaFanspeed::Turbo
     };
     
     for (auto fanspeed : fan_speeds)
@@ -1984,6 +2067,8 @@ int main(int argc, char *argv[])
     test_cmdc0_outdoor_temperature();
     test_cmd8d_power_energy();
     test_cmd20_eva_temperatures();
+    test_cmd20_turbo_and_indoor_error_flags();
+    test_cmd20_indoor_error_flags_with_pending_control();
     test_cmdf0_error_code();
     
     // High priority: CmdC6, Cmd54, CmdF3 tests
