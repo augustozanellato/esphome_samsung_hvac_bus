@@ -380,6 +380,9 @@ namespace esphome
             dst = long_to_hex(data[2]);
 
             cmd = (NonNasaCommand)data[3];
+
+            LOGI("RECV: {src:%02x;dst:%02x;cmd:%02x;raw:%s}", data[1], data[2], cmd, bytes_to_hex(std::vector<uint8_t>(data.begin() + 4, data.begin() + 13)).c_str());
+
             switch (cmd)
             {
             case NonNasaCommand::Cmd20:
