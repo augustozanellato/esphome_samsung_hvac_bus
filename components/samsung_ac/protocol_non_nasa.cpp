@@ -437,7 +437,7 @@ namespace esphome
                 //
                 command8D.inverter_current_a = (float)data[8] / 10;                                              // Current in Amps (raw value / 10)
                 command8D.inverter_voltage_v = (float)data[10] * 2;                                              // Voltage in Volts (raw value * 2)
-                command8D.inverter_power_w = command8D.inverter_current_a * 0.1f * command8D.inverter_voltage_v; // Power in Watts
+                command8D.inverter_power_w = command8D.inverter_current_a * command8D.inverter_voltage_v;        // Power in Watts
                 return {DecodeResultType::Processed, 14};
 
             case NonNasaCommand::CmdF0:
@@ -465,7 +465,7 @@ namespace esphome
                 commandF3.inverter_total_capacity_requirement_kw = (float)data[5] / 10;
                 commandF3.inverter_current_a = (float)data[8] / 10;
                 commandF3.inverter_voltage_v = (float)data[9] * 2;
-                commandF3.inverter_power_w = commandF3.inverter_current_a * 0.1f * commandF3.inverter_voltage_v;
+                commandF3.inverter_power_w = commandF3.inverter_current_a * commandF3.inverter_voltage_v;
                 return {DecodeResultType::Processed, 14};
 
             default:
